@@ -18,7 +18,7 @@ function App() {
 function Gate({ tab, onNavigate }: { tab: Tab; onNavigate: (t: Tab) => void }) {
   const { s } = useBudget();
   if (!s) return null;
-  if (!s.onboarded) return <Onboarding onFinish={() => onNavigate("dashboard")} />;
+  if (!s.onboarded) return <Onboarding />;
   if (tab === "dashboard") return <Dashboard />;
   if (tab === "overview") return <BudgetOverview />;
   return <BudgetSettings />;

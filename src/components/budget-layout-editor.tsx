@@ -6,7 +6,7 @@ import { GripHorizontal, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { Block } from "@/lib/budget";
 
-const LABELS: Record<Block, string> = { summary: "Top Summary", table: "Safe to Spend", spend: "Add Transaction", breakdown: "Breakdown" };
+const LABELS: Record<Block, string> = { summary: "Top Summary", spend: "Log Spending", table: "Table", breakdown: "Bottom Breakdown" };
 function SortableBlock({ id }: { id: Block }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
   return <li ref={setNodeRef} style={{ transform: CSS.Transform.toString(transform), transition }}
