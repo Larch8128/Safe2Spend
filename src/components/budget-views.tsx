@@ -60,12 +60,14 @@ export function Dashboard() {
   const blocks = {
     summary: <header className="flex items-start justify-between gap-4">
       <div className="min-w-0">
-        <p className="text-xs font-semibold text-muted-foreground">{fmtD(period.start)} – {fmtD(period.end)}</p>
-        <h1 className="font-display text-3xl font-bold">Safe to spend</h1>
-        {currentWeek && <p className="mt-1 inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary">
-          Current week &middot; {fmtD(currentWeek.start)} – {fmtD(currentWeek.end)}
-        </p>}
-        <p className="figure-num mt-2 text-5xl" aria-label="Safe to spend total">{money(summaryTotal(rows.map((r) => r.f), top))}</p>
+        <p className="text-xs font-semibold text-muted-foreground">{fmtD(period.start)} &ndash; {fmtD(period.end)}</p>
+        <div className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          <h1 className="bg-gradient-to-br from-foreground to-foreground/70 bg-clip-text font-display text-3xl font-medium tracking-tight text-transparent">Safe to spend</h1>
+          {currentWeek && <p className="tnum rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
+            Week {fmtD(currentWeek.start)} &ndash; {fmtD(currentWeek.end)}
+          </p>}
+        </div>
+        <p className="figure-num mt-3 text-5xl" aria-label="Safe to spend total">{money(summaryTotal(rows.map((r) => r.f), top))}</p>
         <div className="mt-3 flex flex-wrap items-center gap-1.5" role="group" aria-label="Top figure period">
           {TOP_MODES.map((m) => <button key={m} type="button" onClick={() => chooseTop(m)} aria-pressed={s.topMode === m}
             className={`pill capitalize ${s.topMode === m ? "pill-on" : ""}`}>{m}</button>)}
@@ -91,7 +93,7 @@ export function Dashboard() {
           </span>)}
         </div>
         {rows.map(({ c }) => <div key={c.id} className="border-b last:border-0">
-          <div className="budget-grid grid items-center gap-1 px-3 py-2" style={{ gridTemplateColumns: COLS }}>
+          <div className="budget-grid budget-row grid items-center gap-1 px-3" style={{ gridTemplateColumns: COLS }}>
             <div className="flex min-w-0 items-center gap-0.5">
               <div className="min-w-0 flex-1">
                 <InlineEdit value={c.name} label={`Edit ${c.name} name`} onSave={(name) => up({ categories: s.categories.map((x) => x.id === c.id ? { ...x, name } : x) })} />
@@ -117,7 +119,7 @@ export function Dashboard() {
     </section>,
     breakdown: <section aria-label="Bottom Breakdown" className="mt-6">
       <h2 className="section-heading mb-2">Breakdown</h2>
-      <div className="rounded-2xl border bg-secondary p-4 text-sm elevate">
+      <div className="card-pad rounded-2xl border bg-secondary text-sm elevate">
         <Line label="Income" v={s.income} />
         <Line label="Bills" v={-s.bills.reduce((a, b) => a + b.amount, 0)} />
         <Line label="Pots" v={-s.pots.reduce((a, b) => a + b.amount, 0)} />
@@ -154,7 +156,7 @@ function Spend({ s, up, today }: { s: State; up: (p: Partial<State>) => void; to
   return (
     <section className="mt-4">
       <h2 className="section-heading mb-2">Add Transaction</h2>
-      <div className="rounded-2xl border bg-card p-3 elevate">
+      <div className="card-pad rounded-2xl border bg-card elevate">
         <div className="flex gap-2">
           <input inputMode="decimal" aria-label="Transaction amount" placeholder="£0.00" value={amt} onChange={(e) => setAmt(e.target.value)}
             className="w-24 rounded-xl border bg-background px-3 py-2 tnum font-semibold outline-none focus:ring-2 focus:ring-ring" />
@@ -174,7 +176,7 @@ function Spend({ s, up, today }: { s: State; up: (p: Partial<State>) => void; to
 }
 
 export function BudgetSettings() {
-  const { s, up } = useBudget();
+  const { s, up, reset } = useBudget();
   if (!s) return <main className="min-h-screen" />;
   const num = (v: string) => parseFloat(v) || 0;
   return (
@@ -209,7 +211,7 @@ export function BudgetSettings() {
         </div>
 
         <h3 className="mt-6 font-semibold">Spacing</h3>
-        <p className="text-xs text-muted-foreground">How much breathing room you want around tables and cards.</p>
+        <p className="text-xs text-muted-foreground">How much breathing room you want around tables and cards. Changes page margins, gaps between sections and padding inside cards.</p>
         <div className="mt-2 flex flex-wrap gap-2">
           {DENSITIES.map((d) => <button key={d.id} type="button" onClick={() => up({ density: d.id })} aria-pressed={s.density === d.id}
             className={`rounded-xl border px-3 py-2 text-sm font-medium transition-colors ${s.density === d.id ? "border-primary bg-primary/10 text-primary" : "border-border bg-card hover:border-primary/50"}`}>
@@ -222,13 +224,21 @@ export function BudgetSettings() {
         <Items title="Bills" items={s.bills} set={(bills) => up({ bills })} />
         <Items title="Pots" items={s.pots} set={(pots) => up({ pots })} />
 
-        <Button variant="ghost" onClick={() => { if (confirm("Clear all spending?")) up({ txns: [] }); }} className="mt-8 text-sm font-semibold text-destructive">Clear all spending</Button>
+        <div className="mt-10 rounded-2xl border border-destructive/30 bg-destructive/5 p-4">
+          <h3 className="font-semibold text-destructive">Start over</h3>
+          <p className="mt-1 text-sm text-muted-foreground">Erase everything — categories, transactions, bills, pots, pay day and income — and return to the welcome screen.</p>
+          <Button variant="destructive"
+            onClick={() => { if (confirm("Erase all data and start over? This cannot be undone.")) reset(); }}
+            className="mt-3 rounded-xl font-semibold">
+            Reset everything
+          </Button>
+        </div>
     </main>
   );
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return <label className="block text-xs font-semibold text-muted-foreground">{label}<div className="mt-1 text-foreground">{children}</div></label>;
+  return <label className="block text-sm font-semibold text-foreground">{label}<div className="mt-1.5">{children}</div></label>;
 }
 
 function Items({ title, items, set }: { title: string; items: LineItem[]; set: (i: LineItem[]) => void }) {
@@ -252,9 +262,10 @@ function Items({ title, items, set }: { title: string; items: LineItem[]; set: (
 
 export function Onboarding() {
   const { s, up } = useBudget();
-  const [mode, setMode] = useState<"choose" | "simple" | "bills">("choose");
+  const [mode, setMode] = useState<"choose" | "simple" | "bills" | "payday" | "payday-bills" | "payday-simple">("choose");
   const [spend, setSpend] = useState("");
   const [income, setIncome] = useState("");
+  const [payDay, setPayDay] = useState(25);
   const [bills, setBills] = useState<LineItem[]>([{ id: uid(), name: "Rent", amount: 0 }]);
   if (!s) return <main className="min-h-screen" />;
   const num = (v: string) => parseFloat(v) || 0;
@@ -262,13 +273,17 @@ export function Onboarding() {
   const doneSimple = () => {
     const v = num(spend);
     if (v <= 0) return;
-    up({ manualSpend: v, onboarded: true });
+    setMode("payday-simple");
   };
   const doneBills = () => {
     const inc = num(income);
     const clean = bills.filter((b) => b.name.trim() && b.amount > 0);
     if (inc <= 0) return;
-    up({ income: inc, bills: clean, manualSpend: null, onboarded: true });
+    setMode("payday-bills");
+  };
+  const finish = (withManual: number | null) => {
+    up({ payDay, manualSpend: withManual, onboarded: true,
+      ...(withManual === null ? { income: num(income), bills: bills.filter((b) => b.name.trim() && b.amount > 0) } : {}) });
   };
 
   return <main className="mx-auto flex min-h-screen max-w-2xl flex-col justify-center px-4 pb-16 pt-8">
@@ -298,8 +313,24 @@ export function Onboarding() {
       <input autoFocus inputMode="decimal" placeholder="£0.00" value={spend} onChange={(e) => setSpend(e.target.value)}
         onKeyDown={(e) => { if (e.key === "Enter") doneSimple(); }}
         className="figure-num mt-6 w-full rounded-2xl border bg-card px-4 py-4 text-center text-4xl outline-none focus:ring-2 focus:ring-ring" />
-      <Button onClick={doneSimple} className="mt-4 h-12 rounded-xl bg-primary text-base font-semibold text-primary-foreground">Start budgeting</Button>
+      <Button onClick={doneSimple} className="mt-4 h-12 rounded-xl bg-primary text-base font-semibold text-primary-foreground">Next: set pay day</Button>
       <Button variant="ghost" onClick={() => setMode("choose")} className="mt-2 text-sm text-muted-foreground">Back</Button>
+    </>}
+
+    {mode === "payday-simple" && <>
+      <h1 className="font-display text-3xl font-bold">When are you paid?</h1>
+      <p className="mt-2 text-sm text-muted-foreground">Pick the day of the month your pay lands. Weeks on the Dashboard line up from here.</p>
+      <PayDayPicker value={payDay} onChange={setPayDay} />
+      <Button onClick={() => finish(num(spend))} className="mt-4 h-12 rounded-xl bg-primary text-base font-semibold text-primary-foreground">Start budgeting</Button>
+      <Button variant="ghost" onClick={() => finish(num(spend))} className="mt-2 text-sm text-muted-foreground">Set one later</Button>
+    </>}
+
+    {mode === "payday-bills" && <>
+      <h1 className="font-display text-3xl font-bold">When are you paid?</h1>
+      <p className="mt-2 text-sm text-muted-foreground">Pick the day of the month your pay lands. Weeks on the Dashboard line up from here.</p>
+      <PayDayPicker value={payDay} onChange={setPayDay} />
+      <Button onClick={() => finish(null)} className="mt-4 h-12 rounded-xl bg-primary text-base font-semibold text-primary-foreground">Start budgeting</Button>
+      <Button variant="ghost" onClick={() => finish(null)} className="mt-2 text-sm text-muted-foreground">Set one later</Button>
     </>}
 
     {mode === "bills" && <>
@@ -326,6 +357,21 @@ export function Onboarding() {
       <Button variant="ghost" onClick={() => setMode("choose")} className="mt-2 text-sm text-muted-foreground">Back</Button>
     </>}
   </main>;
+}
+
+function PayDayPicker({ value, onChange }: { value: number; onChange: (day: number) => void }) {
+  return <div className="mt-4">
+    <div className="grid grid-cols-7 gap-1.5">
+      {Array.from({ length: 31 }, (_, i) => i + 1).map((day) => (
+        <button key={day} type="button" onClick={() => onChange(day)} aria-pressed={value === day}
+          className={`tnum rounded-lg border py-2 text-sm font-semibold transition-colors ${value === day
+            ? "border-primary bg-primary text-primary-foreground"
+            : "border-border bg-card hover:border-primary/50"}`}>
+          {day}
+        </button>
+      ))}
+    </div>
+  </div>;
 }
 
 export function BudgetOverview() {

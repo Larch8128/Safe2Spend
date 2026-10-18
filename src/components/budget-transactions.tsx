@@ -4,6 +4,15 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { money, parse, transactionHistory, type State, type Txn } from "@/lib/budget";
 
+/** Section-scoped destructive action: clears every logged transaction after a confirm. */
+export function ClearSpendingButton({ s, up }: { s: State; up: (patch: Partial<State>) => void }) {
+  return <Button variant="link" size="sm"
+    onClick={() => { if (confirm("Clear every logged transaction? This cannot be undone.")) up({ txns: [] }); }}
+    className="h-auto py-1 text-sm font-semibold text-destructive">
+    Clear all spending
+  </Button>;
+}
+
 export function RecentTransactions({ s, up }: { s: State; up: (patch: Partial<State>) => void }) {
   const [open, setOpen] = useState(false);
   const history = transactionHistory(s.txns);
@@ -11,8 +20,12 @@ export function RecentTransactions({ s, up }: { s: State; up: (patch: Partial<St
     {items.map((t) => <TxnRow key={t.id} t={t} s={s} up={up} />)}
   </ul>;
   return <section aria-label="Recent Transactions" className="mt-4">
-    <div className="flex items-center justify-between gap-2"><h2 className="section-heading">Recent Transactions</h2>
-      <Button variant="link" size="sm" onClick={() => setOpen(true)}>View All</Button>
+    <div className="flex items-center justify-between gap-2">
+      <h2 className="section-heading">Recent Transactions</h2>
+      <div className="flex items-center gap-1">
+        {history.length > 0 && <ClearSpendingButton s={s} up={up} />}
+        <Button variant="link" size="sm" onClick={() => setOpen(true)}>View All</Button>
+      </div>
     </div>
     <div className="mt-2 rounded-2xl border bg-card px-3 elevate">
       {history.length ? list(transactionHistory(s.txns, 3)) : <p className="py-3 text-sm text-muted-foreground">No transactions yet</p>}

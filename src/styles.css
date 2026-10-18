@@ -277,10 +277,12 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* Density: gap around tables, cards and sections, chosen in Settings. */
-:root[data-density="comfortable"] { --page-pad: 1.75rem; --block-gap: 2rem; }
-:root[data-density="default"] { --page-pad: 1.25rem; --block-gap: 1.25rem; }
-:root[data-density="compact"] { --page-pad: 0.75rem; --block-gap: 0.75rem; }
+/* Density: page margins, gaps between sections and card padding, chosen in Settings. */
+:root[data-density="comfortable"] { --page-pad: 2rem; --block-gap: 3rem; --card-pad: 1.5rem; --row-pad-y: 0.75rem; }
+:root[data-density="default"] { --page-pad: 1.25rem; --block-gap: 1.5rem; --card-pad: 1rem; --row-pad-y: 0.5rem; }
+:root[data-density="compact"] { --page-pad: 0.5rem; --block-gap: 0.5rem; --card-pad: 0.5rem; --row-pad-y: 0.25rem; }
+
+@utility card-pad { padding: var(--card-pad); }
 
 .figure-num {
   font-family: var(--font-body);
@@ -326,3 +328,6 @@
   line-height: 1.5rem;
   color: var(--color-foreground);
 }
+
+/* Table rows breathe with the chosen density. */
+.budget-row { padding-top: var(--row-pad-y); padding-bottom: var(--row-pad-y); }

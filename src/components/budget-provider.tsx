@@ -36,11 +36,15 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
     document.documentElement.setAttribute("data-density", s.density);
   }, [s]);
   const up = (patch: Partial<State>) => setS((current) => current ? { ...current, ...patch } : current);
-  return <BudgetContext.Provider value={{ s, up }}>{children}</BudgetContext.Provider>;
+  const reset = () => {
+    localStorage.removeItem(KEY);
+    setS(defaultState());
+  };
+  return <BudgetContext.Provider value={{ s, up, reset }}>{children}</BudgetContext.Provider>;
 }
 
 export function useBudget() {
   const context = useContext(BudgetContext);
   if (!context) throw new Error("BudgetProvider is required");
-  return context;
+  return context as { s: State | null; up: (patch: Partial<State>) => void; reset: () => void };
 }
