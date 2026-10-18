@@ -3,14 +3,45 @@ import { InlineEdit } from "@/components/budget-inline-edit";
 import { LayoutEditor } from "@/components/budget-layout-editor";
 import { useBudget } from "@/components/budget-provider";
 import { RecentTransactions } from "@/components/budget-transactions";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Pencil, Plus, Trash2, Check, ChevronRight, Lock, Sparkles } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import {
   figures, iso, money, payPeriod, uid, editRemaining, summaryTotal, selectVisiblePeriod, resolveTopPeriod,
-  overviewWeeks, THEMES, DENSITIES, safeToSpend, parse,
+  overviewWeeks, THEMES, DENSITIES, safeToSpend, parse, categoriesPreset,
   type State, type LineItem, type Period, type TopMode,
 } from "@/lib/budget";
+
+const TOUR = [
+  { text: "This is your Safe to Spend. Pick which figure you want front and centre: daily, weekly or monthly — or leave it on auto.", target: "summary" },
+  { text: "These turn each column on or off. Your summary always matches the columns you keep visible.", target: "table" },
+] as const;
+
+function Tour({ step, onNext, onDone }: { step: number; onNext: () => void; onDone: () => void }) {
+  const tip = TOUR[step];
+  if (!tip) return null;
+  const target = document.querySelector(`[data-block="${tip.target}"]`);
+  const rect = target?.getBoundingClientRect();
+  const top = rect ? Math.min(Math.max(rect.bottom + 12, 12), window.innerHeight - 180) : 96;
+  const left = rect ? Math.min(Math.max(rect.left, 12), window.innerWidth - 12 - Math.min(340, window.innerWidth - 24)) : 12;
+  return <div className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label="Getting started">
+    <button type="button" aria-label="Skip tour" onClick={onDone} className="absolute inset-0 bg-foreground/40 backdrop-blur-[2px] cursor-default" />
+    {target && rect && <div className="pointer-events-none absolute rounded-2xl ring-4 ring-primary shadow-[0_0_0_9999px_rgba(0,0,0,0.25)]"
+      style={{ top: rect.top - 8, left: rect.left - 8, width: rect.width + 16, height: rect.height + 16 }} />}
+    <div className="absolute rounded-2xl border bg-card p-4 shadow-xl elevate" style={{ top, left, width: Math.min(340, window.innerWidth - 24) }}>
+      <p className="text-sm leading-relaxed">{tip.text}</p>
+      <div className="mt-3 flex items-center justify-between">
+        <button type="button" onClick={onDone} className="text-sm text-muted-foreground">Skip</button>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">{step + 1} of {TOUR.length}</span>
+          {step < TOUR.length - 1
+            ? <Button size="sm" onClick={onNext}>Next</Button>
+            : <Button size="sm" onClick={onDone}>Got it</Button>}
+        </div>
+      </div>
+    </div>
+  </div>;
+}
 
 const ALL = ["daily", "weekly", "monthly"] as const;
 const TOP_MODES: TopMode[] = ["daily", "weekly", "monthly", "auto"];
@@ -21,7 +52,11 @@ const COLS = "minmax(6.5rem, 1.5fr) repeat(3, minmax(0, 1fr))";
 export function Dashboard() {
   const { s, up } = useBudget();
   const today = useMemo(() => new Date(), []);
+  const [tick, setTick] = useState(0);
+  const tour = s?.tourStep !== undefined && s.tourStep > 0 && s.tourStep <= TOUR.length ? s.tourStep - 1 : null;
+  useEffect(() => { if (tour !== null) setTick((t) => t + 1); }, [tour]);
   if (!s) return <div className="min-h-screen" />;
+  const tourKey = tour === null ? 0 : tour * 1000 + tick;
 
   const period = payPeriod(today, s.payDay);
   const rows = s.categories.map((c) => ({ c, f: figures(c, s.txns, today, s.payDay) }));
@@ -129,6 +164,7 @@ export function Dashboard() {
   };
   return <main className="mx-auto min-h-screen max-w-2xl px-[var(--page-pad)] pb-24 pt-8">
     {s.layout.map((id) => <div key={id} data-block={id} className="mb-[var(--block-gap)]">{blocks[id]}</div>)}
+    {tour !== null && <Tour key={tourKey} step={tour} onNext={() => up({ tourStep: tour + 2 })} onDone={() => up({ tourStep: 2 })} />}
   </main>;
 }
 
@@ -260,12 +296,13 @@ function Items({ title, items, set }: { title: string; items: LineItem[]; set: (
   );
 }
 
-export function Onboarding() {
+export function Onboarding({ onFinish }: { onFinish: () => void }) {
   const { s, up } = useBudget();
-  const [mode, setMode] = useState<"choose" | "simple" | "bills" | "payday" | "payday-bills" | "payday-simple">("choose");
+  const [mode, setMode] = useState<"choose" | "simple" | "categories" | "bills" | "payday-bills" | "payday-simple">("choose");
   const [spend, setSpend] = useState("");
   const [income, setIncome] = useState("");
   const [payDay, setPayDay] = useState(25);
+  const [preset, setPreset] = useState<"single" | "triple">("single");
   const [bills, setBills] = useState<LineItem[]>([{ id: uid(), name: "Rent", amount: 0 }]);
   if (!s) return <main className="min-h-screen" />;
   const num = (v: string) => parseFloat(v) || 0;
@@ -273,7 +310,7 @@ export function Onboarding() {
   const doneSimple = () => {
     const v = num(spend);
     if (v <= 0) return;
-    setMode("payday-simple");
+    setMode("categories");
   };
   const doneBills = () => {
     const inc = num(income);
@@ -282,8 +319,9 @@ export function Onboarding() {
     setMode("payday-bills");
   };
   const finish = (withManual: number | null) => {
-    up({ payDay, manualSpend: withManual, onboarded: true,
+    up({ payDay, manualSpend: withManual, onboarded: true, tourStep: 1, categories: categoriesPreset(preset),
       ...(withManual === null ? { income: num(income), bills: bills.filter((b) => b.name.trim() && b.amount > 0) } : {}) });
+    onFinish();
   };
 
   return <main className="mx-auto flex min-h-screen max-w-2xl flex-col justify-center px-4 pb-16 pt-8">
@@ -292,7 +330,7 @@ export function Onboarding() {
         <Sparkles className="size-6 text-primary" />
         <h1 className="font-display text-3xl font-bold">Welcome</h1>
       </div>
-      <p className="mt-2 text-sm text-muted-foreground">There are two ways to use Safe to Spend. You can change your mind later in Settings.</p>
+      <p className="mt-2 text-sm text-muted-foreground">Work out the amount you KNOW you have spare until you next get paid. It is a monthly figure — if there are three weeks left before payday, it gets split between those three weeks.</p>
       <div className="mt-6 space-y-3">
         <button type="button" onClick={() => setMode("simple")}
           className="w-full rounded-2xl border bg-card p-4 text-left elevate transition-colors hover:border-primary/50">
@@ -309,12 +347,31 @@ export function Onboarding() {
 
     {mode === "simple" && <>
       <h1 className="font-display text-3xl font-bold">Your monthly amount</h1>
-      <p className="mt-2 text-sm text-muted-foreground">This becomes your Safe to Spend pot. You can hand it out to categories on the Dashboard.</p>
+      <p className="mt-2 text-sm text-muted-foreground">Enter the amount you KNOW you have left after all bills are taken care of — for example, just for food, or for food and fuel, plus a buffer in case of the unexpected. This becomes your Safe to Spend pot on the Dashboard.</p>
       <input autoFocus inputMode="decimal" placeholder="£0.00" value={spend} onChange={(e) => setSpend(e.target.value)}
         onKeyDown={(e) => { if (e.key === "Enter") doneSimple(); }}
         className="figure-num mt-6 w-full rounded-2xl border bg-card px-4 py-4 text-center text-4xl outline-none focus:ring-2 focus:ring-ring" />
-      <Button onClick={doneSimple} className="mt-4 h-12 rounded-xl bg-primary text-base font-semibold text-primary-foreground">Next: set pay day</Button>
+      <Button onClick={doneSimple} className="mt-4 h-12 rounded-xl bg-primary text-base font-semibold text-primary-foreground">Next: choose categories</Button>
       <Button variant="ghost" onClick={() => setMode("choose")} className="mt-2 text-sm text-muted-foreground">Back</Button>
+    </>}
+
+    {mode === "categories" && <>
+      <h1 className="font-display text-3xl font-bold">What do you spend it on?</h1>
+      <p className="mt-2 text-sm text-muted-foreground">Your Safe to Spend pot is split into categories. You can rename them and change the amounts any time.</p>
+      <div className="mt-6 space-y-3">
+        <button type="button" onClick={() => setPreset("single")} aria-pressed={preset === "single"}
+          className={`w-full rounded-2xl border p-4 text-left elevate transition-colors ${preset === "single" ? "border-primary bg-primary/10" : "border-border bg-card hover:border-primary/50"}`}>
+          <p className="font-semibold">One category</p>
+          <p className="mt-1 text-sm text-muted-foreground">A single "Food" category for the whole pot. Simplest to manage.</p>
+        </button>
+        <button type="button" onClick={() => setPreset("triple")} aria-pressed={preset === "triple"}
+          className={`w-full rounded-2xl border p-4 text-left elevate transition-colors ${preset === "triple" ? "border-primary bg-primary/10" : "border-border bg-card hover:border-primary/50"}`}>
+          <p className="font-semibold">Food, Fuel and Other</p>
+          <p className="mt-1 text-sm text-muted-foreground">A default set of three categories to split the pot across.</p>
+        </button>
+      </div>
+      <Button onClick={() => setMode("payday-simple")} className="mt-4 h-12 rounded-xl bg-primary text-base font-semibold text-primary-foreground">Next: set pay day</Button>
+      <Button variant="ghost" onClick={() => setMode("simple")} className="mt-2 text-sm text-muted-foreground">Back</Button>
     </>}
 
     {mode === "payday-simple" && <>

@@ -18,9 +18,11 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
       const raw = localStorage.getItem(KEY);
       const stored = raw ? JSON.parse(raw) : {};
       const merged = { ...defaults, ...stored, show: { ...defaults.show, ...stored.show } };
+      merged.tourStep = typeof stored.tourStep === "number" ? Math.max(0, Math.min(2, stored.tourStep)) : stored.onboarded === true ? 2 : 0;
       if (!Object.values(merged.show).some(Boolean)) merged.show.weekly = true;
       merged.activePeriod = selectVisiblePeriod(merged.show, merged.activePeriod);
       if (!merged.topMode) merged.topMode = "auto";
+      if (!Array.isArray(merged.categories) || merged.categories.length === 0) merged.categories = defaults.categories;
       merged.theme = validTheme(stored.theme);
       merged.density = validDensity(stored.density);
       merged.onboarded = stored.onboarded === true;

@@ -12,7 +12,7 @@ export const THEMES: Theme[] = [
   { id: "slate", name: "Slate", swatch: "oklch(0.4 0.03 250)" },
   { id: "dark", name: "Midnight", swatch: "oklch(0.2 0.03 250)" },
 ];
-export const BLOCKS = ["summary", "spend", "table", "breakdown"] as const;
+export const BLOCKS = ["summary", "table", "spend", "breakdown"] as const;
 export type Block = typeof BLOCKS[number];
 export type Density = "comfortable" | "default" | "compact";
 export const DENSITIES: { id: Density; name: string }[] = [
@@ -34,6 +34,7 @@ export type State = {
   pots: LineItem[];
   categories: Category[];
   txns: Txn[];
+  tourStep: number;
   show: { daily: boolean; weekly: boolean; monthly: boolean };
   showWeeks: boolean;
 };
@@ -215,6 +216,16 @@ export const money = (n: number) =>
 
 export const uid = () => Math.random().toString(36).slice(2, 10);
 
+export function categoriesPreset(kind: "single" | "triple"): Category[] {
+  return kind === "single"
+    ? [{ id: uid(), name: "Food", monthly: 400 }]
+    : [
+        { id: uid(), name: "Food", monthly: 400 },
+        { id: uid(), name: "Fuel", monthly: 150 },
+        { id: uid(), name: "Other", monthly: 200 },
+      ];
+}
+
 export const defaultState = (): State => ({
   activePeriod: "weekly",
   topMode: "auto",
@@ -227,12 +238,9 @@ export const defaultState = (): State => ({
   income: 2500,
   bills: [{ id: uid(), name: "Rent", amount: 900 }, { id: uid(), name: "Utilities", amount: 180 }],
   pots: [{ id: uid(), name: "Savings", amount: 300 }],
-  categories: [
-    { id: uid(), name: "Food", monthly: 400 },
-    { id: uid(), name: "Fuel", monthly: 150 },
-    { id: uid(), name: "Other", monthly: 200 },
-  ],
+  categories: categoriesPreset("single"),
   txns: [],
+  tourStep: 0,
   show: { daily: true, weekly: true, monthly: true },
   showWeeks: false,
 });
