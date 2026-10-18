@@ -277,6 +277,11 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Density: gap around tables, cards and sections, chosen in Settings. */
+:root[data-density="comfortable"] { --page-pad: 1.75rem; --block-gap: 2rem; }
+:root[data-density="default"] { --page-pad: 1.25rem; --block-gap: 1.25rem; }
+:root[data-density="compact"] { --page-pad: 0.75rem; --block-gap: 0.75rem; }
+
 .figure-num {
   font-family: var(--font-body);
   font-variant-numeric: tabular-nums;

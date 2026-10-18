@@ -14,10 +14,19 @@ export const THEMES: Theme[] = [
 ];
 export const BLOCKS = ["summary", "spend", "table", "breakdown"] as const;
 export type Block = typeof BLOCKS[number];
+export type Density = "comfortable" | "default" | "compact";
+export const DENSITIES: { id: Density; name: string }[] = [
+  { id: "comfortable", name: "Comfortable" },
+  { id: "default", name: "Default" },
+  { id: "compact", name: "Compact" },
+];
 export type State = {
   activePeriod: Period;
   topMode: TopMode;
   theme: ThemeId;
+  density: Density;
+  onboarded: boolean;
+  manualSpend: number | null;
   layout: Block[];
   payDay: number;
   income: number;
@@ -28,6 +37,31 @@ export type State = {
   show: { daily: boolean; weekly: boolean; monthly: boolean };
   showWeeks: boolean;
 };
+
+/** Safe to Spend pot: a locked manual amount, or income minus bills minus pots. */
+export function safeToSpend(s: Pick<State, "income" | "bills" | "pots" | "manualSpend">) {
+  if (s.manualSpend !== null) return s.manualSpend;
+  const bills = s.bills.reduce((a, b) => a + b.amount, 0);
+  const pots = s.pots.reduce((a, b) => a + b.amount, 0);
+  return s.income - bills - pots;
+}
+
+/** Total monthly amount currently assigned to categories. */
+export function allocatedTotal(cats: Category[]) {
+  return cats.reduce((a, c) => a + (c.start ?? c.monthly), 0);
+}
+
+/** Cap a category edit so total allocation never exceeds the Safe to Spend pot. */
+export function capAllocation(
+  cats: Category[],
+  editedId: string,
+  desired: number,
+  pot: number,
+): Category[] {
+  const others = cats.filter((c) => c.id !== editedId).reduce((a, c) => a + (c.start ?? c.monthly), 0);
+  const max = Math.max(0, pot - others);
+  return cats.map((c) => c.id === editedId ? { ...c, monthly: Math.min(desired, max) } : c);
+}
 
 const DAY = 86400000;
 export const d0 = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
@@ -185,6 +219,9 @@ export const defaultState = (): State => ({
   activePeriod: "weekly",
   topMode: "auto",
   theme: "sage",
+  density: "comfortable",
+  onboarded: false,
+  manualSpend: null,
   layout: [...BLOCKS],
   payDay: 25,
   income: 2500,

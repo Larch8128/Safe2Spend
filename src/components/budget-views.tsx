@@ -4,19 +4,19 @@ import { LayoutEditor } from "@/components/budget-layout-editor";
 import { useBudget } from "@/components/budget-provider";
 import { RecentTransactions } from "@/components/budget-transactions";
 import { useMemo, useState } from "react";
-import { Pencil, Plus, Trash2, Check, ChevronRight } from "lucide-react";
+import { Pencil, Plus, Trash2, Check, ChevronRight, Lock, Sparkles } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import {
   figures, iso, money, payPeriod, uid, editRemaining, summaryTotal, selectVisiblePeriod, resolveTopPeriod,
-  overviewWeeks, THEMES, parse,
-  type State, type LineItem, type TopMode,
+  overviewWeeks, THEMES, DENSITIES, safeToSpend, parse,
+  type State, type LineItem, type Period, type TopMode,
 } from "@/lib/budget";
 
 const ALL = ["daily", "weekly", "monthly"] as const;
 const TOP_MODES: TopMode[] = ["daily", "weekly", "monthly", "auto"];
 const fmtD = (d: Date) => d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 // Fixed equal columns for daily/weekly/monthly — widths never change when toggled.
-const COLS = "minmax(5.5rem, 1.4fr) repeat(3, minmax(0, 1fr))";
+const COLS = "minmax(6.5rem, 1.5fr) repeat(3, minmax(0, 1fr))";
 
 export function Dashboard() {
   const { s, up } = useBudget();
@@ -25,10 +25,9 @@ export function Dashboard() {
 
   const period = payPeriod(today, s.payDay);
   const rows = s.categories.map((c) => ({ c, f: figures(c, s.txns, today, s.payDay) }));
-  const billsT = s.bills.reduce((a, b) => a + b.amount, 0);
-  const potsT = s.pots.reduce((a, b) => a + b.amount, 0);
-  const catT = s.categories.reduce((a, c) => a + (c.start ?? c.monthly), 0);
-  const unalloc = s.income - billsT - potsT - catT;
+  const pot = safeToSpend(s);
+  const leftToAllocate = Math.max(0, pot - s.categories.reduce((a, c) => a + (c.start ?? c.monthly), 0));
+  const currentWeek = rows[0]?.f.weeks.find((w) => w.current);
 
   const top = resolveTopPeriod(s.topMode, s.show, s.activePeriod);
   const visible = ALL.filter((k) => s.show[k]);
@@ -41,57 +40,93 @@ export function Dashboard() {
     if (mode === "auto") { up({ topMode: "auto" }); return; }
     up({ topMode: mode, activePeriod: mode });
   };
+  // Capped edit: the new allocation can never push the category total past the pot.
+  const editCapped = (id: string, period: Period, value: number) => {
+    const candidate = editRemaining(
+      s.categories.find((c) => c.id === id)!, s.txns, today, s.payDay, period, value,
+    );
+    const total = s.categories.reduce((a, c) => a + (c.id === id ? 0 : (c.start ?? c.monthly)), 0)
+      + (candidate.start ?? candidate.monthly);
+    const excess = Math.max(0, total - pot);
+    const start = Math.max(0, (candidate.start ?? candidate.monthly) - excess);
+    up({ categories: s.categories.map((c) => c.id === id ? { ...candidate, start } : c) });
+  };
+  const addCategory = () =>
+    up({ categories: [...s.categories, { id: uid(), name: "New category", monthly: 0 }] });
+  const deleteCategory = (id: string, name: string) => {
+    if (!confirm(`Delete ${name}? Its transactions stay in your history.`)) return;
+    up({ categories: s.categories.filter((c) => c.id !== id) });
+  };
   const blocks = {
     summary: <header className="flex items-start justify-between gap-4">
       <div className="min-w-0">
         <p className="text-xs font-semibold text-muted-foreground">{fmtD(period.start)} – {fmtD(period.end)}</p>
         <h1 className="font-display text-3xl font-bold">Safe to spend</h1>
+        {currentWeek && <p className="mt-1 inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary">
+          Current week &middot; {fmtD(currentWeek.start)} – {fmtD(currentWeek.end)}
+        </p>}
         <p className="figure-num mt-2 text-5xl" aria-label="Safe to spend total">{money(summaryTotal(rows.map((r) => r.f), top))}</p>
-        <div className="mt-3 flex flex-wrap gap-1.5" role="group" aria-label="Top figure period">
+        <div className="mt-3 flex flex-wrap items-center gap-1.5" role="group" aria-label="Top figure period">
           {TOP_MODES.map((m) => <button key={m} type="button" onClick={() => chooseTop(m)} aria-pressed={s.topMode === m}
             className={`pill capitalize ${s.topMode === m ? "pill-on" : ""}`}>{m}</button>)}
+          {s.manualSpend !== null && <span className="inline-flex items-center gap-1 text-xs font-semibold text-muted-foreground"><Lock className="size-3" /> own amount</span>}
         </div>
       </div>
     </header>,
     spend: <><Spend s={s} up={up} today={today} /><RecentTransactions s={s} up={up} /></>,
     table: <section aria-label="Safe to spend table" className="mt-10">
-      <h2 className="section-heading mb-2">Safe to Spend</h2>
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <h2 className="section-heading">Safe to Spend</h2>
+        {leftToAllocate > 0 && <span className="rounded-full bg-accent px-2.5 py-1 text-xs font-semibold text-accent-foreground">
+          {money(leftToAllocate)} left to allocate
+        </span>}
+      </div>
       <div className="overflow-hidden rounded-2xl border bg-card elevate">
-        <div className="budget-grid grid items-center gap-1 border-b bg-muted px-3 py-2 text-xs font-semibold text-muted-foreground" style={{ gridTemplateColumns: COLS }}>
-          <span>SAFE TO SPEND</span>
-          {ALL.map((k) => <span key={k} className="tnum px-1 capitalize text-center">{k}</span>)}
-        </div>
         <div className="budget-grid grid items-center gap-1 border-b bg-muted px-3 py-2" style={{ gridTemplateColumns: COLS }}>
-          <span className="text-xs text-muted-foreground">Show columns</span>
+          <span className="text-xs font-semibold text-muted-foreground">Show columns</span>
           {ALL.map((k) => <span key={k} className="flex justify-center">
             <button type="button" onClick={() => toggle(k)} aria-pressed={s.show[k]} aria-label={`${s.show[k] ? "Hide" : "Show"} ${k} column`}
               disabled={s.show[k] && visible.length === 1}
               className={`pill capitalize ${s.show[k] ? "pill-on" : ""}`}>{k}</button>
           </span>)}
         </div>
-        {rows.map(({ c, f }) => <div key={c.id} className="border-b last:border-0">
+        {rows.map(({ c }) => <div key={c.id} className="border-b last:border-0">
           <div className="budget-grid grid items-center gap-1 px-3 py-2" style={{ gridTemplateColumns: COLS }}>
-            <InlineEdit value={c.name} label={`Edit ${c.name} name`} onSave={(name) => up({ categories: s.categories.map((x) => x.id === c.id ? { ...x, name } : x) })} />
+            <div className="flex min-w-0 items-center gap-0.5">
+              <div className="min-w-0 flex-1">
+                <InlineEdit value={c.name} label={`Edit ${c.name} name`} onSave={(name) => up({ categories: s.categories.map((x) => x.id === c.id ? { ...x, name } : x) })} />
+              </div>
+              <Button variant="ghost" size="icon" aria-label={`Delete ${c.name}`} title={`Delete ${c.name}`}
+                className="size-8 shrink-0 text-muted-foreground/50 hover:text-destructive"
+                onClick={() => deleteCategory(c.id, c.name)}><Trash2 className="size-3.5" /></Button>
+            </div>
             {ALL.map((k) => !s.show[k]
               ? <span key={k} className="col-dash">—</span>
-              : <InlineEdit key={k} numeric value={Number(f[k].toFixed(2))} negative={f[k] < 0} label={`Edit ${c.name} ${k}`} onSave={(value) => up({ categories: s.categories.map((x) => x.id === c.id ? editRemaining(x, s.txns, today, s.payDay, k, Number(value)) : x) })} />)}
+              : <InlineEdit key={k} numeric value={Number(figures(c, s.txns, today, s.payDay)[k].toFixed(2))} negative={figures(c, s.txns, today, s.payDay)[k] < 0} label={`Edit ${c.name} ${k}`} onSave={(value) => editCapped(c.id, k, Number(value))} />)}
           </div>
         </div>)}
+        <div className="px-3 py-2">
+          <Button variant="ghost" onClick={addCategory} className="flex items-center gap-1 text-sm font-semibold text-primary">
+            <Plus className="size-4" /> Add category
+          </Button>
+        </div>
       </div>
+      {leftToAllocate > 0 && <p className="mt-2 text-xs text-muted-foreground">
+        Tap a figure to edit it. You have {money(leftToAllocate)} of your {money(pot)} pot still to hand out.
+      </p>}
     </section>,
     breakdown: <section aria-label="Bottom Breakdown" className="mt-6">
       <h2 className="section-heading mb-2">Breakdown</h2>
       <div className="rounded-2xl border bg-secondary p-4 text-sm elevate">
         <Line label="Income" v={s.income} />
-        <Line label="Bills" v={-billsT} />
-        <Line label="Pots" v={-potsT} />
-        <Line label="Spending categories" v={-catT} />
-        <div className="mt-2 border-t border-border pt-2"><Line label="Unallocated" v={unalloc} bold /></div>
+        <Line label="Bills" v={-s.bills.reduce((a, b) => a + b.amount, 0)} />
+        <Line label="Pots" v={-s.pots.reduce((a, b) => a + b.amount, 0)} />
+        <Line label="Safe to spend pot" v={pot} bold />
       </div>
     </section>,
   };
-  return <main className="mx-auto min-h-screen max-w-2xl px-4 pb-24 pt-8">
-    {s.layout.map((id) => <div key={id} data-block={id} className="mb-5">{blocks[id]}</div>)}
+  return <main className="mx-auto min-h-screen max-w-2xl px-[var(--page-pad)] pb-24 pt-8">
+    {s.layout.map((id) => <div key={id} data-block={id} className="mb-[var(--block-gap)]">{blocks[id]}</div>)}
   </main>;
 }
 
@@ -143,7 +178,7 @@ export function BudgetSettings() {
   if (!s) return <main className="min-h-screen" />;
   const num = (v: string) => parseFloat(v) || 0;
   return (
-    <main className="mx-auto min-h-screen max-w-2xl px-4 pb-28 pt-8">
+    <main className="mx-auto min-h-screen max-w-2xl px-[var(--page-pad)] pb-28 pt-8">
         <div className="flex items-center justify-between">
           <h1 className="font-display text-3xl font-bold">Settings</h1>
         </div>
@@ -157,6 +192,12 @@ export function BudgetSettings() {
           </Field>
         </div>
 
+        <h3 className="mt-6 font-semibold">Your Safe to Spend amount</h3>
+        <p className="text-xs text-muted-foreground">Leave blank to work it out automatically from income minus bills and pots. Set a number to lock your own amount — bills can change later without touching it.</p>
+        <div className="mt-2">
+          <input inputMode="decimal" placeholder="Automatic" defaultValue={s.manualSpend ?? ""} onBlur={(e) => up({ manualSpend: e.target.value === "" ? null : num(e.target.value) })} className="inp" />
+        </div>
+
         <h3 className="mt-6 font-semibold">Appearance</h3>
         <p className="text-xs text-muted-foreground">Pick a colour scheme for the whole app.</p>
         <div className="mt-2 flex flex-wrap gap-2">
@@ -167,19 +208,16 @@ export function BudgetSettings() {
           </button>)}
         </div>
 
-        <LayoutEditor layout={s.layout} onSave={(layout) => up({ layout })} />
-
-        <h3 className="mt-6 font-semibold">Spending categories</h3>
-        <p className="text-xs text-muted-foreground">Starting balance overrides the monthly amount for this pay month (e.g. starting mid-month).</p>
-        <div className="mt-2 space-y-2">
-          {s.categories.map((c) => (
-            <CatRow key={c.id} name={c.name} monthly={c.monthly} start={c.start ?? null}
-              onChange={(p) => up({ categories: s.categories.map((x) => (x.id === c.id ? { ...x, ...p } : x)) })}
-              onDelete={() => up({ categories: s.categories.filter((x) => x.id !== c.id) })} />
-          ))}
-          <Button variant="ghost" onClick={() => up({ categories: [...s.categories, { id: uid(), name: "New category", monthly: 0 }] })}
-            className="flex items-center gap-1 text-sm font-semibold text-primary"><Plus className="h-4 w-4" /> Add category</Button>
+        <h3 className="mt-6 font-semibold">Spacing</h3>
+        <p className="text-xs text-muted-foreground">How much breathing room you want around tables and cards.</p>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {DENSITIES.map((d) => <button key={d.id} type="button" onClick={() => up({ density: d.id })} aria-pressed={s.density === d.id}
+            className={`rounded-xl border px-3 py-2 text-sm font-medium transition-colors ${s.density === d.id ? "border-primary bg-primary/10 text-primary" : "border-border bg-card hover:border-primary/50"}`}>
+            {d.name}
+          </button>)}
         </div>
+
+        <LayoutEditor layout={s.layout} onSave={(layout) => up({ layout })} />
 
         <Items title="Bills" items={s.bills} set={(bills) => up({ bills })} />
         <Items title="Pots" items={s.pots} set={(pots) => up({ pots })} />
@@ -191,40 +229,6 @@ export function BudgetSettings() {
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return <label className="block text-xs font-semibold text-muted-foreground">{label}<div className="mt-1 text-foreground">{children}</div></label>;
-}
-
-function CatRow({ name, monthly, start, onChange, onDelete }: {
-  name: string; monthly: number; start: number | null;
-  onChange: (p: { name?: string; monthly?: number; start?: number | null }) => void; onDelete: () => void;
-}) {
-  const [edit, setEdit] = useState(false);
-  const [n, setN] = useState(name);
-  return (
-    <div className="rounded-xl border bg-card p-3">
-      <div className="flex items-center gap-2">
-        {edit ? (
-          <>
-            <input autoFocus value={n} onChange={(e) => setN(e.target.value)} className="inp flex-1" />
-            <Button variant="ghost" aria-label="Save name" onClick={() => { onChange({ name: n.trim() || name }); setEdit(false); }}><Check className="h-4 w-4" /></Button>
-          </>
-        ) : (
-          <>
-            <span className="flex-1 font-semibold">{name}</span>
-            <Button variant="ghost" aria-label="Rename" onClick={() => setEdit(true)} className="text-muted-foreground"><Pencil className="h-4 w-4" /></Button>
-          </>
-        )}
-        <Button variant="ghost" aria-label="Delete" onClick={() => confirm(`Delete ${name}?`) && onDelete()} className="text-destructive"><Trash2 className="h-4 w-4" /></Button>
-      </div>
-      <div className="mt-2 grid grid-cols-2 gap-2">
-        <Field label="Monthly">
-          <input inputMode="decimal" defaultValue={monthly} onBlur={(e) => onChange({ monthly: parseFloat(e.target.value) || 0 })} className="inp" />
-        </Field>
-        <Field label="Starting balance">
-          <input inputMode="decimal" placeholder="—" defaultValue={start ?? ""} onBlur={(e) => onChange({ start: e.target.value === "" ? null : parseFloat(e.target.value) || 0 })} className="inp" />
-        </Field>
-      </div>
-    </div>
-  );
 }
 
 function Items({ title, items, set }: { title: string; items: LineItem[]; set: (i: LineItem[]) => void }) {
@@ -246,6 +250,84 @@ function Items({ title, items, set }: { title: string; items: LineItem[]; set: (
   );
 }
 
+export function Onboarding() {
+  const { s, up } = useBudget();
+  const [mode, setMode] = useState<"choose" | "simple" | "bills">("choose");
+  const [spend, setSpend] = useState("");
+  const [income, setIncome] = useState("");
+  const [bills, setBills] = useState<LineItem[]>([{ id: uid(), name: "Rent", amount: 0 }]);
+  if (!s) return <main className="min-h-screen" />;
+  const num = (v: string) => parseFloat(v) || 0;
+
+  const doneSimple = () => {
+    const v = num(spend);
+    if (v <= 0) return;
+    up({ manualSpend: v, onboarded: true });
+  };
+  const doneBills = () => {
+    const inc = num(income);
+    const clean = bills.filter((b) => b.name.trim() && b.amount > 0);
+    if (inc <= 0) return;
+    up({ income: inc, bills: clean, manualSpend: null, onboarded: true });
+  };
+
+  return <main className="mx-auto flex min-h-screen max-w-2xl flex-col justify-center px-4 pb-16 pt-8">
+    {mode === "choose" && <>
+      <div className="flex items-center gap-2">
+        <Sparkles className="size-6 text-primary" />
+        <h1 className="font-display text-3xl font-bold">Welcome</h1>
+      </div>
+      <p className="mt-2 text-sm text-muted-foreground">There are two ways to use Safe to Spend. You can change your mind later in Settings.</p>
+      <div className="mt-6 space-y-3">
+        <button type="button" onClick={() => setMode("simple")}
+          className="w-full rounded-2xl border bg-card p-4 text-left elevate transition-colors hover:border-primary/50">
+          <p className="font-semibold">I know my safe to spend</p>
+          <p className="mt-1 text-sm text-muted-foreground">Set one amount for the month. No bills needed — you can add them later without it changing.</p>
+        </button>
+        <button type="button" onClick={() => setMode("bills")}
+          className="w-full rounded-2xl border bg-card p-4 text-left elevate transition-colors hover:border-primary/50">
+          <p className="font-semibold">Work it out from my bills</p>
+          <p className="mt-1 text-sm text-muted-foreground">Enter your pay and recurring bills for the month, and we work out what is safe to spend. Then hand it out to categories.</p>
+        </button>
+      </div>
+    </>}
+
+    {mode === "simple" && <>
+      <h1 className="font-display text-3xl font-bold">Your monthly amount</h1>
+      <p className="mt-2 text-sm text-muted-foreground">This becomes your Safe to Spend pot. You can hand it out to categories on the Dashboard.</p>
+      <input autoFocus inputMode="decimal" placeholder="£0.00" value={spend} onChange={(e) => setSpend(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter") doneSimple(); }}
+        className="figure-num mt-6 w-full rounded-2xl border bg-card px-4 py-4 text-center text-4xl outline-none focus:ring-2 focus:ring-ring" />
+      <Button onClick={doneSimple} className="mt-4 h-12 rounded-xl bg-primary text-base font-semibold text-primary-foreground">Start budgeting</Button>
+      <Button variant="ghost" onClick={() => setMode("choose")} className="mt-2 text-sm text-muted-foreground">Back</Button>
+    </>}
+
+    {mode === "bills" && <>
+      <h1 className="font-display text-3xl font-bold">Pay and bills</h1>
+      <p className="mt-2 text-sm text-muted-foreground">Everything you keep aside comes off the top — what is left is safe to spend.</p>
+      <div className="mt-6">
+        <Field label="Monthly pay">
+          <input autoFocus inputMode="decimal" placeholder="£0.00" value={income} onChange={(e) => setIncome(e.target.value)} className="inp" />
+        </Field>
+      </div>
+      <h3 className="mt-4 text-sm font-semibold">Recurring bills this month</h3>
+      <div className="mt-2 space-y-2">
+        {bills.map((b) => (
+          <div key={b.id} className="flex items-center gap-2">
+            <input placeholder="Name" defaultValue={b.name} onBlur={(e) => setBills(bills.map((x) => x.id === b.id ? { ...x, name: e.target.value } : x))} className="inp flex-1" />
+            <input inputMode="decimal" placeholder="£0.00" defaultValue={b.amount || ""} onBlur={(e) => setBills(bills.map((x) => x.id === b.id ? { ...x, amount: num(e.target.value) } : x))} className="inp w-24" />
+            <Button variant="ghost" size="icon" aria-label="Remove bill" className="shrink-0 text-muted-foreground hover:text-destructive" onClick={() => setBills(bills.filter((x) => x.id !== b.id))}><Trash2 className="size-4" /></Button>
+          </div>
+        ))}
+        <Button variant="ghost" onClick={() => setBills([...bills, { id: uid(), name: "", amount: 0 }])}
+          className="flex items-center gap-1 text-sm font-semibold text-primary"><Plus className="size-4" /> Add bill</Button>
+      </div>
+      <Button onClick={doneBills} className="mt-4 h-12 rounded-xl bg-primary text-base font-semibold text-primary-foreground">Work out my safe to spend</Button>
+      <Button variant="ghost" onClick={() => setMode("choose")} className="mt-2 text-sm text-muted-foreground">Back</Button>
+    </>}
+  </main>;
+}
+
 export function BudgetOverview() {
   const { s, up } = useBudget();
   const today = useMemo(() => new Date(), []);
@@ -262,7 +344,7 @@ export function BudgetOverview() {
   };
   const selected = openWeek !== null ? weeks[openWeek] ?? null : null;
 
-  return <main className="mx-auto min-h-screen max-w-2xl px-4 pb-28 pt-8">
+  return <main className="mx-auto min-h-screen max-w-2xl px-[var(--page-pad)] pb-28 pt-8">
     <header className="mb-8">
       <p className="text-xs font-semibold text-muted-foreground">{fmtD(period.start)} – {fmtD(period.end)}</p>
       <h1 className="font-display text-3xl font-bold">Overview</h1>
@@ -278,21 +360,23 @@ export function BudgetOverview() {
     <div className="space-y-2">
       {weeks.map((w, i) => (
         <button key={iso(w.start)} type="button" onClick={() => setOpenWeek(i)}
-          className={`flex w-full items-center justify-between gap-3 rounded-2xl border p-4 text-left transition-colors elevate ${w.current ? "border-primary bg-primary/5" : w.past ? "bg-muted/60" : "bg-card hover:border-primary/50"}`}>
+          className={`flex w-full items-center justify-between gap-3 rounded-2xl border p-4 text-left transition-all elevate ${w.current
+            ? "border-primary bg-primary text-primary-foreground shadow-lg"
+            : w.past ? "border-border bg-muted/60 text-muted-foreground" : "border-border bg-card hover:border-primary/50"}`}>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <p className="font-semibold">{fmtD(w.start)} – {fmtD(w.end)}</p>
-              {w.current && <span className="rounded-full bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground">Current</span>}
-              {w.past && <span className="text-xs font-semibold text-muted-foreground">Past</span>}
+              <p className={`font-semibold ${w.current ? "text-base" : ""}`}>{fmtD(w.start)} – {fmtD(w.end)}</p>
+              {w.current && <span className="rounded-full bg-primary-foreground/20 px-2.5 py-0.5 text-xs font-bold uppercase tracking-wide">This week</span>}
+              {w.past && <span className="text-xs font-semibold">Past</span>}
             </div>
-            <p className="mt-1 text-xs text-muted-foreground">{w.days} day{w.days > 1 ? "s" : ""} &middot; {w.txns.length} transaction{w.txns.length === 1 ? "" : "s"}</p>
+            <p className={`mt-1 text-xs ${w.current ? "text-primary-foreground/80" : ""}`}>{w.days} day{w.days > 1 ? "s" : ""} &middot; {w.txns.length} transaction{w.txns.length === 1 ? "" : "s"}</p>
           </div>
           <div className="flex items-center gap-2">
             <div className="text-right">
-              <p className="figure-num text-2xl">{money(w.total)}</p>
-              <p className="text-xs text-muted-foreground">available</p>
+              <p className={`figure-num ${w.current ? "text-3xl" : "text-2xl"}`}>{money(w.total)}</p>
+              <p className={`text-xs ${w.current ? "text-primary-foreground/80" : "text-muted-foreground"}`}>available</p>
             </div>
-            <ChevronRight className="size-5 shrink-0 text-muted-foreground" />
+            <ChevronRight className="size-5 shrink-0 opacity-70" />
           </div>
         </button>
       ))}
@@ -300,17 +384,16 @@ export function BudgetOverview() {
 
     <Dialog open={openWeek !== null} onOpenChange={(o) => { if (!o) setOpenWeek(null); }}>
       <DialogContent className="max-h-[85dvh] w-[calc(100%-2rem)] rounded-lg">
-        {selected && <WeekDetail week={selected} s={s} up={up} today={today} />}
+        {selected && <WeekDetail week={selected} s={s} up={up} />}
       </DialogContent>
     </Dialog>
   </main>;
 }
 
-function WeekDetail({ week, s, up, today }: {
+function WeekDetail({ week, s, up }: {
   week: ReturnType<typeof overviewWeeks>[number];
   s: State;
   up: (p: Partial<State>) => void;
-  today: Date;
 }) {
   const [cat, setCat] = useState(s.categories[0]?.id ?? "");
   const [amt, setAmt] = useState("");
@@ -357,7 +440,7 @@ function WeekDetail({ week, s, up, today }: {
             return <li key={t.id} className="flex min-h-12 items-center gap-2 py-2">
               <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{category}</p><time dateTime={t.date} className="text-xs text-muted-foreground">{date}</time></div>
               <span className="tnum shrink-0 text-sm font-semibold">{money(t.amount)}</span>
-              <Button variant="ghost" size="icon" aria-label={`Delete ${category} transaction`} className="shrink-0 text-muted-foreground hover:text-destructive" onClick={() => delTxn(t.id)}><Trash2 className="h-4 w-4" /></Button>
+              <Button variant="ghost" size="icon" aria-label={`Delete ${category} transaction`} className="shrink-0 text-muted-foreground hover:text-destructive" onClick={() => delTxn(t.id)}><Trash2 className="size-4" /></Button>
             </li>;
           })}
         </ul> : <p className="py-3 text-sm text-muted-foreground">No transactions this week</p>}
